@@ -1,0 +1,428 @@
+---
+title: "Biden-might-win-the-2020-election"
+author: "Haoming Hu, Ziyu Hao, QianWen Shen, SongYuan Luo"
+date: "11/2/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(broom)
+library(brms)
+library(here)
+library(tidybayes)
+library(tidyverse)
+```
+#Abstract
+The 2020 American presidential election holds great uncertainty due to the pandemic. For the purpose of forecasting the results of the 2020 american presidential election, we applied Multilevel regression with post-stratification to the 2020 american presidential election survey and census data and found that Trump has a higher probability of winning among the two potential candidates, Trump and Biden. 
+
+keyword:Forecasting; Trump; Biden; Multilevel regression with post-stratification
+
+
+#Intro
+For the purpose of forecasting the winner of the 2020 American presidential election, we obtained the survey data and post stratification data from Tausanovitch, Chris and Lynn Vavreck. 2020. Democracy Fund + UCLA Nationscape and the work of American Community Surveys ACS respectively. There are 6479 observations in the survey data containing 265 variables and 613777 observations in the post stratification data. 
+
+The variables of interest are ‘gender’, ‘race’, ‘education’, ‘state’, ‘age’ and ‘employment’.  Among all the observations, we only intend to include eligible and valid data. Therefore , we filtered all the non-responses select groups of interest, with 5300 and 11307 observations left in the survey and post stratification data respectively.
+
+We used the brm (Bayesian generalized non-linear multilevel model) to help predict the winner of the 2020 american presidential election. A variable ‘support_Trump’ was coined to show if someone has voted for trump, with 1 representing people having voted for Trump and 0 representing voted for Biden, another potential candidate in the election. Several plots have been generated and labelled appropriately. 
+
+The main purpose of this report is to predict the winner of the 2020 American presidential election. By applying the multilevel regression with post stratification model to the survey and census data, we found out that Trump has a higher probability of winning. In order to see how the changes of state affect the intercept, we applied one layer to the variable ‘state’ and created MRP estimate and data comparison plots.
+
+
+#data
+
+```{r echo=FALSE,message=FALSE}
+#### Preamble ####
+# Purpose: Prepare and clean the survey data downloaded fromï¼
+# Tausanovitch, Chris and Lynn Vavreck. 2020. Democracy Fund + UCLA Nationscape, October 10-17, 2019 (version 20200814). 
+# https://www.voterstudygroup.org/downloads?key=1c2ff38b-5ade-4f75-856b-616f859becff
+# Author: Chelsea Shen 
+# Data: 26 October 2020
+# Contact: chelsea.shen@mail.utoronto.ca [PROBABLY CHANGE THIS ALSO!!!!]
+# License: MIT
+# Pre-requisites: 
+# - Need to have downloaded the data from X and save the folder that you're 
+# interested in to inputs/data 
+# - Don't forget to gitignore it!
+
+
+#### Workspace setup ####
+library(haven)
+library(tidyverse)
+library(ggplot2)
+# Read in the raw data (You might need to change this if you use a different dataset)
+raw_data <- read_dta("input/ns20200625.dta")
+# Add the labels
+raw_data <- labelled::to_factor(raw_data)
+raw_data
+# Kept variables with respondent's information 
+reduced_data <- 
+  raw_data %>% 
+  select(vote_2020,
+         employment,
+         gender,
+         race_ethnicity,
+         education,
+         state,
+         age)
+
+# renamed some variable, race and supports_Trump
+names(reduced_data)[names(reduced_data) == "race_ethnicity"] <- "race"
+names(reduced_data)[names(reduced_data) == "vote_2020"] <- "supports_Trump"
+
+#summary(reduced_data$supports_Trump)
+#levels(factor(reduced_data$supports_Trump))  
+
+name <- c("Donald Trump", "Joe Biden")
+# Changed some variable values, removed unneccesarily features and values. 
+reduced_data <- reduced_data %>% filter(supports_Trump %in% name) %>%
+  mutate(trump = case_when(
+    supports_Trump=="Donald Trump" ~ 1,
+    supports_Trump=="Joe Biden" ~ 0
+  )) 
+
+#levels(factor(reduced_data$employment))
+# mutated some variable 
+reduced_data <- reduced_data %>% 
+  mutate(employment = case_when(
+    employment=="Full-time employed" ~ 'employed',
+    employment=="Homemaker" ~ 'unemployed',
+    employment=="Retired" ~ 'unemployed',
+    employment=="Unemployed or temporarily on layoff" ~ 'unemployed',
+    employment=="Part-time employed" ~ 'employed',
+    employment=="Permanently disabled" ~ 'unemployed',
+    employment=="Student" ~ 'unemployed',
+    employment=="Self-employed" ~ 'employed'
+  )) 
+
+#levels(factor(reduced_data$race))
+# categorized racial groups
+reduced_data <- reduced_data %>% 
+  mutate(race = case_when(
+    race=="Black, or African American" ~ 'Black',
+    race=="American Indian or Alaska Native" ~ 'Others',
+    race=="Pacific Islander (Native Hawaiian)" ~ 'Others',
+    race=="Pacific Islander(Guamanian)" ~ 'Others',
+    race=="Pacific Islander(Samoan)" ~ 'Others',
+    race=="Pacific Islander(Other)" ~ 'Others',
+    race=="Some other race" ~ 'Others',
+    race=="Asian (Asian Indian)" ~ 'Asian',
+    race=="Asian (Chinese)" ~ 'Asian',
+    race=="Asian (Filipino)" ~ 'Asian',
+    race=="Asian (Japanese)" ~ 'Asian',
+    race=="Asian (Korean)" ~ 'Asian',
+    race=="Asian (Vietnamese)" ~ 'Asian',
+    race=="Asian (Other)" ~ 'Asian',
+    race=="White" ~ 'White'
+  )) 
+
+# levels(factor(reduced_data$education))
+# categorized education 
+reduced_data <- reduced_data %>% 
+  mutate(education = case_when(
+    education=="3rd Grade or less" ~ 'Less than highschool',
+    education=="Middle School - Grades 4 - " ~ 'Less than highschool',
+    education=="Completed some high schoo" ~ 'Highschool',
+    education=="High school graduate" ~ 'Highschool',
+    education=="Other post high school vocational training" ~ 'Undergraduates or similar degree',
+    education=="Completed some college, but no degree" ~ 'Undergraduates or similar degree',
+    education=="Associate Degree" ~ 'Undergraduates or similar degree',
+    education=="College Degree (such as B.A., B.S.)" ~ 'Undergraduates or similar degree',
+    education=="Completed some graduate, but no degree" ~ 'Undergraduates or similar degree',
+    education=="Masters degree" ~ 'Graduates or higher degree',
+    education=="Doctorate degree" ~ 'Graduates or higher degree',
+  ))
+
+# changed age to age group
+reduced_data <- reduced_data %>% 
+  mutate(age = case_when(
+    age <= 29 ~ 'Age_18-29',
+    age >= 30 & age <= 44 ~ 'Age_30-44',
+    age >= 45 & age <= 59 ~ 'Age_45-59',
+    age >= 60 & age <= 74 ~ 'Age_60-74',
+    age >= 75  ~ 'Age_75+'
+  ))
+
+######
+reduced_data <- reduced_data %>% select(gender, race, education, state, age, employment, trump)
+
+#levels(factor(reduced_data$race))
+summary(reduced_data)
+
+
+# Sort the data
+reduced_data <- reduced_data[order(reduced_data$state, reduced_data$gender, reduced_data$race, reduced_data$education,
+                                   reduced_data$age, reduced_data$employment),]
+
+
+# write the csv file
+ write.csv(reduced_data, file="output/survey-data.csv")
+
+
+
+# Lets look at the age distribution 
+
+support_set <- reduced_data %>% group_by(trump, age) %>% count()
+
+
+# we divide our dataset into 2 groups by their opinions
+support <- support_set %>% filter(trump == 1)
+support <- support %>% mutate(percent = round(100*n/sum(support$n), 1), value = n) # Add a percentage variable on the dataset
+opposed <- support_set %>% filter(trump == 0)
+opposed <- opposed %>% mutate(percent = round(100*n/sum(opposed$n), 1), value = n) # Add a percentage variable on the dataset
+
+
+
+```
+
+
+
+The survey data was provided generously  by Tausanovitch, Chris and Lynn Vavreck. 2020. Democracy Fund + UCLA Nationscape, October 10-17, 2019 (version 20200814). Retrieved from [https://www.voterstudygroup.org/downloads?key=1c2ff38b-5ade-4f75-856b-616f859becff].
+
+Data collection and methodology:
+
+Nowadays, true random-digit-dial surveys now typically have such low response rates that theorems based on random sampling do little to ensure the representativeness of the set of people who actually respond to the survey (Kennedy and Deane 2019). Hence, Nationscape  has a convenience sample selected on a set of demographic criteria. Purposive sampling method was used, selection respondents based upon their characteristics to obtain a sample that is constructed to be representative of the population in terms of a specified set of characteristics. The survey conducted 500,000 interviews of Americans from July 2019 through December 2020, covering the 2020 campaign and election. The survey has been in the field since July 10, 2019, and it includes interviews with roughly 6,250 people per week. All respondents take the survey online and must complete an attention check before taking the survey. The survey is conducted in English. 	
+
+There are 6479 observations in the original dataset containing 265 variables, and for the purpose of this study, we kept 5200 observations and  7 variables.  Our response variable is ‘Supports Trump’:
+
+1 represents the respondent supports Donald Trump
+0 represents the respondent supports Joe Biden
+
+
+The predictors are our respondent’s employment status, gender, racial ethnicity, education level, state of residence, and age group.
+
+Age were categorized into 5 age groups: 18-29, 30-44, 45-59, 60-74 and 75+
+Race was categorized into 4 groups, Asian: White, Black and Others
+Employment status was categorized into 2 groups: employed and unemployed 
+Education level was categorized into 4 groups:Less than highschool, Highschool, Undergraduates or similar degree and Graduates or higher degree
+```{r echo=FALSE,message=FALSE}
+# Using a pie chart to illustrates for those who support Trump , what are their age group
+support_graph<- ggplot(support, aes(x="", y=percent, fill=`age`))+
+  geom_bar(width = 1, stat = "identity") + 
+  geom_text(aes(label = percent), size=3, position = position_stack(vjust = 0.5))
+pie_support <- support_graph + coord_polar("y", start=0)
+
+# Using a pie chart to illustrates for those who support Biden , what are their age group
+opposed_graph<- ggplot(opposed, aes(x="", y=percent, fill=`age`))+
+  geom_bar(width = 1, stat = "identity") + 
+  geom_text(aes(label = percent), size=3, position = position_stack(vjust = 0.5))
+pie_opposed <- opposed_graph + coord_polar("y", start=0)
+
+
+# Defined theme for a more clear pie chart
+blank_theme <- theme_minimal()+
+  theme(
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    panel.border = element_blank(),
+    panel.grid=element_blank(),
+    axis.ticks = element_blank(),
+    plot.title=element_text(size=14, face="bold")
+  )
+
+# We made a better pie chart to show for those who support the Trump, what are their age group
+pie_support <- pie_support + blank_theme +
+  theme(axis.text.x=element_blank()) +
+  labs(fill = "supports_ALP",
+       x = NULL,
+       y = NULL,
+       title = "Age Group of different voters to Trump",
+       caption = "")
+
+pie_opposed <- pie_opposed + blank_theme +
+  theme(axis.text.x=element_blank()) +
+  labs(fill = "supports_ALP",
+       x = NULL,
+       y = NULL,
+       title = "Age Group of different voters to Biden",
+       caption = "")
+# Figure 1, histgram comparing Donald Trump and Biden's supporter
+hist(reduced_data$trump)
+# Pie charts of age groups of our respondents
+pie_support
+pie_opposed
+
+```
+
+From Figure 1. the histogram, we can see that Joe Biden has slightly higher supporters in our respondents compared to Donald Trump. 
+
+From Figure 2 and 3, the pie chart, we can see that respondents aged 30 to 44 are the primary supporters of Donald Trump, with 33.1%, compared to 29.7% of the age group supporting Joe Biden.  Respondents in the age group 18 - 29 made up 12.4% of Donald Trump’s supporters compared to 24% supporting Joe Biden. 
+
+The post stratification data was provided generously from the work of American Community Surveys ACS and Steven Ruggles, Sarah Flood, Ronald Goeken, Josiah Grover, Erin Meyer, Jose Pacas and Matthew Sobek. The data we used was AMERICAN COMMUNITY SURVEY 2018 SAMPLE. You can find it at https://usa.ipums.org/usa/sampdesc.shtml#us2018a. 
+
+The Integrated Public Use Microdata Series (IPUMS USA) collects the data from more than fifty high-precision samples of the American population drawn from fifteen federal censuses and from the American Community Surveys of 2000-Present to the present. However, because different researchers created these samples at different times and employed different record layouts, coding schemes, and documentation. The IPUMS assigns unified all the samples and brings relevant documentation into a coherent form to enable others a better analysis of social and economic change. And the data we used is only a part of it -- ACS 2018 version.
+
+The population is all citizens of The United State that are eligible to vote for their president candidates. And the Frame population is all the citizens that took part of the Censors. To enable a better accuracy of our model, we filtered out those non-response, such as those under 18. 
+
+The strength of these data is that it is very comprehensive, which makes our filtered data set more accurate. However, there are some drawbacks. For instance, in the original data, the labforce status only includes two values: ‘yes’ and ‘no’. However, in the survey dataset, there are many other values, such as ‘retired’ and ‘full-time’ and ‘part-time’ and so on. To match these two setdata, we curtailed the survey data, and this might cause the loss of accuracy. If in the post-strat dataset, it has more genres, we can have more cells and more accurate data.
+
+The dataset contains 613777 observations of 28 variables. 
+After categorizing and removing undesired data, 11307 observations remained. Variables kept includes sex, race, education level, state of residence, age and labour force. These predictors are categorized and renamed in response to the survey data. 
+
+Age were categorized into 5 age groups, 18-29, 30-44, 45-59, 60-74 and 75+
+Race was categorized into 4 groups, Asian, White, Black and Others
+Employment status was categorized into 2 groups, employed and unemployed 
+Education level was categorized into 4 groups: Less than highschool, Highschool, Undergraduates or similar degree and Graduates or higher degree
+
+To be more specific, in our total sampling population, we included 236586 males and 252954 females. Among them, 20408 have less than highschool degree, and 168297 have highschool education. Besides, 242190 and 58645 have undergraduate and graduate educational backgrounds respectively. In terms of the age group, most of the people sit in the age group between 45-59 (124169), while people between 18 and 29 take the least proportion in the overall population.
+
+In this research, we used multilevel regression with the post-stratification method, and it is useful in terms of survey modelling. Our survey dataset cannot cover all the population, and it is a non-representative sample. Therefore, we used post-stratification to adjust the sampling weights to sum to the population sizes within each subset. This will result in a decreased bias due to the nonresponse and underrepresented groups in the population. Although it will automatically adjust for the underrepresented groups, it is still troublesome when we have small-sized subsets.
+
+
+#model
+
+```{r echo=FALSE, message=FALSE}
+#read the csv file,and name it as example_poll
+example_poll <- read.csv("output/survey-data.csv")
+head(example_poll)
+
+# buid a Bayesian generalized non-linear multilevel model, supports_alp
+#is the dependent and use bernoulli distribution
+
+logit_model <-brm(trump~gender+age+state+employment+race+education,
+                  data =example_poll,
+                  family =bernoulli(),
+                  file ="brms_model")
+logit_model <-read_rds("brms_model.rds")
+
+summary(logit_model)
+```
+
+The model we used in this research is  Bayesian Multilevel regression with post-stratification.In this case, we have a Bernoulli distributed response variable, and that means we set the dependent variable as being binary in a Bayesian setting. We are using the MRP model to predict Trump or Biden who will win the 2020 election of the USA. As in the dataset, we have categorized our response outcome into 2 categories, support Trump or support Biden, where
+1 represents the respondent supports Donald Trump
+0 represents the respondent supports Joe Biden
+Gender,age,state,employment,race,and education are predictors.
+The equation is:
+
+$$n^{supportALP = 1}_{[i]}BernoulliLogit(N_{[i]},\alpha{[i]})$$
+
+
+$$alpha_[i] = \alpha^{gender}_{g[i]} + \alpha^{age}_{a[i]} + \alpha^{state}_{s[i]} + \alpha^{employment}_{e[i]} + \alpha^{race}_{r[i]} + \alpha^{education}_{edu[i]} $$
+
+# Discussion and Results
+
+```{r, echo=FALSE, message= FALSE}
+
+#read the csv file,and name it as census_data
+census_data <-read_csv("output/post-strat-data.csv")
+
+head(census_data)
+
+#estimate the mean, upper and lowwer bound for the rate of Trump win the election for each state
+post_stratified_estimates <-logit_model%>%
+  tidybayes::add_predicted_draws(newdata =census_data)%>%
+  rename(alp_predict =.prediction)%>%
+  mutate(alp_predict_prop =alp_predict*cell_prop_of_division_total)%>%
+  group_by(state, .draw)%>%
+  summarise(alp_predict =sum(alp_predict_prop))%>%
+  group_by(state)%>%
+  summarise(mean =mean(alp_predict),
+            lower =quantile(alp_predict,0.025),
+            upper =quantile(alp_predict,0.975))
+post_stratified_estimates
+#see whcich state will definetly not vote trump
+view(post_stratified_estimates$mean)
+count <- length(which(post_stratified_estimates$mean < 0.5 ))
+count
+
+
+# adding layers, for each state we want a different intercept
+model_states <-brm(trump~gender+age+(1|state)+employment+race+education,
+                   data =example_poll,family =bernoulli(),
+                   file ="brms_model_states",
+                   control =list(adapt_delta =0.90))
+summary(model_states)
+
+example_poll %>%
+  count(state)
+
+
+
+```
+Then we use post-stratified estimates for each division. Our new Bayesian approach shows trump's support rate for each state.
+In our post-stratified estimates, there will be 16 states (out of 49 states) which are strongly opposing Trump to be the next president. They will not vote for Trump definitely. Also, there are 14 states which are strongly in favor of voting for Trump. So there are 19  swing states. And those state's estimated mean is lower than 0.5. It is hard for Trump to get the vote from those states.
+```{r echo=FALSE, message= FALSE}
+#making graph comparing raw estimates with model estimates
+post_stratified_estimates %>%
+  ggplot(aes(y = mean, x = forcats::fct_inorder(state), color = "MRP estimate")) +
+  geom_point() +
+  geom_errorbar(aes(ymin = lower, ymax = upper), width = 0) +
+  ylab("Proportion ALP support") +
+  xlab("State") +
+  geom_point(data = example_poll %>%
+               group_by(state, trump) %>%
+               summarise(n = n()) %>%
+               group_by(state) %>%
+               mutate(prop = n/sum(n)) %>%
+               filter(trump==1),
+             aes(state, prop, color = "Raw data")) +
+  theme_minimal() +
+  scale_color_brewer(palette = "Set1") +
+  theme(legend.position = "bottom") +
+  theme(legend.title = element_blank())
+```
+
+
+According to the post-stratified estimates, we plot a graph.Asthe graph shows, Trump is in a disadvantage.
+For state model we used the bayesian approach and a layer is added. By changing the second level group- parameter 'state', we can get different intercept.
+We want to show how the model affects the results and a graph is created to compare the raw estimate to the model estimate.
+By observing the proportion ALP support vs State graph we can see that state KY, NC, PA and WI, the raw estimates are the closest to the model estimate whereas in state ND a big difference is observed.
+
+
+# Appendices
+1. You can find our codes in:https://github.com/songyuan-l/Biden-might-win-the-2020-election
+
+# References
+
+1.R Core Team (2020). R: A language and environment for statistical
+computing. R Foundation for Statistical Computing, Vienna, Austria.
+URL https://www.R-project.org/.
+
+@Manual{,
+       title = {here: A Simpler Way to Find Your Files},
+       author = {Kirill Müller},
+       year = {2017},
+       note = {R package version 0.1},
+       url = {https://CRAN.R-project.org/package=here},
+}
+
+2.To cite package ‘broom’ in publications use:
+  
+  David Robinson, Alex Hayes and Simon Couch (2020). broom: Convert Statistical Objects into
+Tidy Tibbles. R package version 0.7.2. https://CRAN.R-project.org/package=broom
+3.To cite brms in publications use:
+  
+  Paul-Christian Bürkner (2017). brms: An R Package for Bayesian Multilevel Models Using Stan.
+Journal of Statistical Software, 80(1), 1-28. doi:10.18637/jss.v080.i01
+
+Paul-Christian Bürkner (2018). Advanced Bayesian Multilevel Modeling with the R Package
+brms. The R Journal, 10(1), 395-411. doi:10.32614/RJ-2018-017
+
+To see these entries in BibTeX format, use 'print(<citation>, bibtex=TRUE)', 'toBibtex(.)', or
+set 'options(citation.bibtex.max=999)'.
+
+4.To cite package ‘here’ in publications use:
+  
+  Kirill Müller (2017). here: A Simpler Way to Find Your Files. R package version 0.1.
+https://CRAN.R-project.org/package=here
+
+5.Kay M (2020). _tidybayes: Tidy Data and Geoms for Bayesian Models_. doi:
+  10.5281/zenodo.1308151 (URL: https://doi.org/10.5281/zenodo.1308151), R package version 2.1.1,
+<URL: http://mjskay.github.io/tidybayes/>.
+
+6. Wickham et al., (2019). Welcome to the tidyverse. Journal of Open Source Software, 4(43),
+1686, https://doi.org/10.21105/joss.01686
+
+7.To cite package ‘haven’ in publications use:
+  
+  Hadley Wickham and Evan Miller (2020). haven: Import and Export 'SPSS', 'Stata' and 'SAS'
+Files. R package version 2.3.1. https://CRAN.R-project.org/package=haven
+
+8.data resource
+https://www.voterstudygroup.org/publication/nationscape-data-set
+https://www.voterstudygroup.org/downloads?key=9bcb7391-219e-44b8-85f1-d411c753d0b0
+
+
+9.week 6 lec note
